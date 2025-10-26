@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"math"
 	"os"
 	"strconv"
 )
@@ -80,26 +79,17 @@ type Board [9][9]int
 
 // copyBoard creates a deep copy of the board
 func copyBoard(board Board) Board {
-	var newBoard Board
-	for i := 0; i < 9; i++ {
-		for j := 0; j < 9; j++ {
-			newBoard[i][j] = board[i][j]
-		}
-	}
+	newBoard := board
 	return newBoard
 }
 
 // getAvailableMoves finds all possible moves for a given shape
 func getAvailableMoves(board Board, shape Shape) []Move {
 	var moves []Move
-	for shapeID, shapeObj := range shapes {
-		if shapeObj.ID == shape.ID {
-			for row := 0; row <= 9-shape.Height; row++ {
-				for col := 0; col <= 9-shape.Width; col++ {
-					if isValidMove(board, shape, row, col) {
-						moves = append(moves, Move{ShapeID: shapeID, Row: row, Col: col})
-					}
-				}
+	for row := 0; row <= 9-shape.Height; row++ {
+		for col := 0; col <= 9-shape.Width; col++ {
+			if isValidMove(board, shape, row, col) {
+				moves = append(moves, Move{ShapeID: shape.ID, Row: row, Col: col})
 			}
 		}
 	}
@@ -108,6 +98,12 @@ func getAvailableMoves(board Board, shape Shape) []Move {
 
 // isValidMove checks if a move is valid
 func isValidMove(board Board, shape Shape, row, col int) bool {
+	// This is unnecessary check, since the getAvailableMoves
+	// function returns only moves that do not go beyond the boundaries of the board.
+	if row+shape.Height > 9 || col+shape.Width > 9 {
+		return false
+	}
+
 	for r := 0; r < shape.Height; r++ {
 		for c := 0; c < shape.Width; c++ {
 			if shape.Grid[r][c] == 1 && board[row+r][col+c] != 0 {
@@ -149,8 +145,8 @@ func checkAndRemoveCompletedRegions(board Board) Board {
 				}
 			}
 			if allFilled {
-				for x := 0; x < 3; x++ {
-					for y := 0; y < 3; y++ {
+				for x := range 3 {
+					for y := range 3 {
 						board[i+x][j+y] = 2 // Temporary marker (equivalent to 'T')
 					}
 				}
@@ -159,40 +155,40 @@ func checkAndRemoveCompletedRegions(board Board) Board {
 	}
 
 	// Check rows
-	for i := 0; i < 9; i++ {
+	for i := range 9 {
 		allFilled := true
-		for j := 0; j < 9; j++ {
+		for j := range 9 {
 			if board[i][j] != 1 && board[i][j] != 2 {
 				allFilled = false
 				break
 			}
 		}
 		if allFilled {
-			for j := 0; j < 9; j++ {
+			for j := range 9 {
 				board[i][j] = 2
 			}
 		}
 	}
 
 	// Check columns
-	for j := 0; j < 9; j++ {
+	for j := range 9 {
 		allFilled := true
-		for i := 0; i < 9; i++ {
+		for i := range 9 {
 			if board[i][j] != 1 && board[i][j] != 2 {
 				allFilled = false
 				break
 			}
 		}
 		if allFilled {
-			for i := 0; i < 9; i++ {
+			for i := range 9 {
 				board[i][j] = 2
 			}
 		}
 	}
 
 	// Replace temporary markers with 0
-	for i := 0; i < 9; i++ {
-		for j := 0; j < 9; j++ {
+	for i := range 9 {
+		for j := range 9 {
 			if board[i][j] == 2 {
 				board[i][j] = 0
 			}
@@ -204,113 +200,123 @@ func checkAndRemoveCompletedRegions(board Board) Board {
 // evaluateBoard evaluates the board state
 
 func evaluateBoard(board Board) int {
-	var compactness, occupiedCells, edgeCells, emptyNeighbors, occupiedNeighbors float64
+	const (
+		PENALTY_PER_BLOCK     = 10000 // Penalty for each filled cell
+		PENALTY_PER_PERIMETER = 200   // Penalty per perimeter unit
+		PENALTY_JAGGED_EDGE   = 500   // Penalty for filled cells with empty neighbors
+		PENALTY_SINGLE_EMPTY  = 500   // Penalty for empty cells between two filled cells
+		BONUS_FREE_CUBE       = 1000  // Bonus for each fully empty 3x3 cube
+	)
 
-	// Check for adjacent filled cells
-	for i := 0; i < 8; i++ {
-		for j := 0; j < 8; j++ {
-			if board[i][j] == 1 && board[i+1][j] == 1 && board[i][j+1] == 1 {
-				compactness += 1
-			}
-		}
-	}
+	score := 0
 
-	// Evaluate each cell
+	// 1. Penalty for each filled block (cell)
+	filledCount := 0
 	for i := 0; i < 9; i++ {
 		for j := 0; j < 9; j++ {
 			if board[i][j] == 1 {
-				occupiedCells += 1
-				if i == 0 || i == 8 || j == 0 || j == 8 {
-					edgeCells += 1
-				} else {
-					counter := 0
-					if i < 8 && board[i+1][j] == 0 {
-						counter++
-					}
-					if j < 8 && board[i][j+1] == 0 {
-						counter++
-					}
-					if i > 0 && board[i-1][j] == 0 {
-						counter++
-					}
-					if j > 0 && board[i][j-1] == 0 {
-						counter++
-					}
-					if counter >= 3 {
-						emptyNeighbors += math.Pow(4, float64(counter))
-					}
-				}
-			} else {
-				counter := 0
-				if i < 8 && board[i+1][j] == 1 {
-					counter++
-				}
-				if j < 8 && board[i][j+1] == 1 {
-					counter++
-				}
-				if i > 0 && board[i-1][j] == 1 {
-					counter++
-				}
-				if j > 0 && board[i][j-1] == 1 {
-					counter++
-				}
-				if counter >= 2 {
-					occupiedNeighbors += math.Pow(4, float64(counter))
-				}
+				filledCount++
 			}
 		}
 	}
+	score -= filledCount * PENALTY_PER_BLOCK
 
-	// Combine criteria with fixed weights
-	score := int(
-		1.8867064192066485*compactness +
-			(-901.8024822913344)*occupiedCells +
-			46.791621056031374*edgeCells +
-			(-0.3287090910678472)*emptyNeighbors +
-			(-1.383686993845287)*occupiedNeighbors,
-	)
+	// 2. Penalty for perimeter of filled shapes
+	perimeter := 0
+	for i := 0; i < 9; i++ {
+		for j := 0; j < 9; j++ {
+			if board[i][j] != 1 {
+				continue
+			}
+			// Count open sides (up, down, left, right)
+			sides := 4
+			if i > 0 && board[i-1][j] == 1 { // Up
+				sides--
+			}
+			if i < 8 && board[i+1][j] == 1 { // Down
+				sides--
+			}
+			if j > 0 && board[i][j-1] == 1 { // Left
+				sides--
+			}
+			if j < 8 && board[i][j+1] == 1 { // Right
+				sides--
+			}
+			perimeter += sides
+		}
+	}
+	score -= perimeter * PENALTY_PER_PERIMETER
+
+	// 3. Penalty for jagged edges (filled cells with empty neighbors)
+	jaggedCount := 0
+	for i := 0; i < 9; i++ {
+		for j := 0; j < 9; j++ {
+			if board[i][j] != 1 {
+				continue
+			}
+			// Check if any neighbor is empty
+			if (i > 0 && board[i-1][j] == 0) || // Up
+				(i < 8 && board[i+1][j] == 0) || // Down
+				(j > 0 && board[i][j-1] == 0) || // Left
+				(j < 8 && board[i][j+1] == 0) { // Right
+				jaggedCount++
+			}
+		}
+	}
+	score -= jaggedCount * PENALTY_JAGGED_EDGE
+
+	// 4. Penalty for single empty cells between two filled cells
+	singleEmptyCount := 0
+	for i := 0; i < 9; i++ {
+		for j := 0; j < 9; j++ {
+			if board[i][j] != 0 {
+				continue
+			}
+			// Check vertical: empty cell with filled cells above and below
+			if i > 0 && i < 8 && board[i-1][j] == 1 && board[i+1][j] == 1 {
+				singleEmptyCount++
+			}
+			// Check horizontal: empty cell with filled cells left and right
+			if j > 0 && j < 8 && board[i][j-1] == 1 && board[i][j+1] == 1 {
+				singleEmptyCount++
+			}
+		}
+	}
+	score -= singleEmptyCount * PENALTY_SINGLE_EMPTY
+
+	// 5. Bonus for fully empty 3x3 cubes
+	freeCubeCount := 0
+	for iBase := 0; iBase <= 6; iBase += 3 {
+		for jBase := 0; jBase <= 6; jBase += 3 {
+			isEmpty := true
+			for i := iBase; i < iBase+3; i++ {
+				for j := jBase; j < jBase+3; j++ {
+					if board[i][j] != 0 {
+						isEmpty = false
+						break
+					}
+				}
+				if !isEmpty {
+					break
+				}
+			}
+			if isEmpty {
+				freeCubeCount++
+			}
+		}
+	}
+	score += freeCubeCount * BONUS_FREE_CUBE
+
+	// Invert score: higher is better
 	return score
 }
 
-// isGameOver checks if no moves are possible for a shape
-func isGameOver(board Board, shape Shape) bool {
-	return len(getAvailableMoves(board, shape)) == 0
-}
-
-// placeShapeOnBoard places a shape on the board and applies the move
-func placeShapeOnBoard(board Board, move Move) Board {
-	shape := shapes[move.ShapeID]
-	for r := 0; r < shape.Height; r++ {
-		for c := 0; c < shape.Width; c++ {
-			if shape.Grid[r][c] == 1 {
-				board[move.Row+r][move.Col+c] = 1
-			}
-		}
-	}
-	return applyMoveToBoard(board, move)
-}
-
 // selectBestMove finds the best move for a given shape
-func selectBestMove(board Board, shape Shape) (int, Move) {
-	bestScore := -1 << 31 // Equivalent to float('-inf')
-	var bestMove Move
-
-	for _, move := range getAvailableMoves(board, shape) {
-		tempBoard := copyBoard(board)
-		tempBoard = placeShapeOnBoard(tempBoard, move)
-		score := evaluateBoard(tempBoard)
-		if score > bestScore {
-			bestScore = score
-			bestMove = move
-		}
-	}
-	return bestScore, bestMove
-}
 
 // visualizeMove displays the board with the move marked
-func visualizeMove(board Board, move Move, myShapes []Shape) {
+func visualizeMove(board Board, move Move) {
 	visualBoard := copyBoard(board)
-	shapeObj := shapes[move.ShapeID] // Use global shapes map
+	shapeObj := shapes[move.ShapeID]
 	for r := 0; r < shapeObj.Height; r++ {
 		for c := 0; c < shapeObj.Width; c++ {
 			if shapeObj.Grid[r][c] == 1 {
@@ -325,6 +331,7 @@ func visualizeMove(board Board, move Move, myShapes []Shape) {
 			} else {
 				fmt.Printf("%d ", cell)
 			}
+
 		}
 		fmt.Println()
 	}
@@ -333,19 +340,19 @@ func visualizeMove(board Board, move Move, myShapes []Shape) {
 
 // tripleMovesInOrder evaluates moves for a given shape order
 func tripleMovesInOrder(board Board, order []Shape) ([]Move, int) {
-	var boardsAfterMove1 [][2]interface{}
+	var boardsAfterMove1 [][2]any
 	for _, move := range getAvailableMoves(board, order[0]) {
 		newBoard := applyMoveToBoard(copyBoard(board), move)
-		boardsAfterMove1 = append(boardsAfterMove1, [2]interface{}{newBoard, move})
+		boardsAfterMove1 = append(boardsAfterMove1, [2]any{newBoard, move})
 	}
 
-	var boardsAfterMove2 [][2]interface{}
+	var boardsAfterMove2 [][2]any
 	for _, b := range boardsAfterMove1 {
 		board := b[0].(Board)
 		move1 := b[1].(Move)
 		for _, move := range getAvailableMoves(board, order[1]) {
 			newBoard := applyMoveToBoard(copyBoard(board), move)
-			boardsAfterMove2 = append(boardsAfterMove2, [2]interface{}{newBoard, []Move{move1, move}})
+			boardsAfterMove2 = append(boardsAfterMove2, [2]any{newBoard, []Move{move1, move}})
 		}
 	}
 
@@ -388,8 +395,19 @@ func goodAlg(board Board, shapes []Shape) []Move {
 	return bestMoves
 }
 
-// startGame2 runs the game loop
-func startGame2(board Board) {
+func main() {
+	var board Board // 9x9 board initialized to zeros
+	board = [9][9]int{
+		{0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0},
+		{0, 0, 0, 0, 0, 0, 0, 0, 0},
+	}
 	scanner := bufio.NewScanner(os.Stdin)
 	for {
 		fmt.Print("shape_id = ")
@@ -409,29 +427,13 @@ func startGame2(board Board) {
 
 		fmt.Println("Best moveS:")
 		fmt.Println("Move 1:")
-		visualizeMove(board, moves[0], myShapes)
+		visualizeMove(board, moves[0])
 		board = applyMoveToBoard(board, moves[0])
 		fmt.Println("Move 2:")
-		visualizeMove(board, moves[1], myShapes)
+		visualizeMove(board, moves[1])
 		board = applyMoveToBoard(board, moves[1])
 		fmt.Println("Move 3:")
-		visualizeMove(board, moves[2], myShapes)
+		visualizeMove(board, moves[2])
 		board = applyMoveToBoard(board, moves[2])
 	}
-}
-
-func main() {
-	var realBoard Board // 9x9 board initialized to zeros
-	realBoard = [9][9]int{
-		{0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{0, 0, 0, 0, 0, 0, 0, 0, 0},
-		{0, 0, 0, 0, 0, 0, 0, 0, 0},
-	}
-	startGame2(realBoard)
 }

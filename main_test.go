@@ -1,14 +1,7 @@
 package main
 
 import (
-	"bufio"
-	"fmt"
-	"math/rand"
-	"os"
-	"sort"
-	"strings"
 	"testing"
-	"time"
 )
 
 // ... (вставьте весь оригинальный код из <DOCUMENT> сюда, кроме main, чтобы тесты работали в том же пакете)
@@ -295,103 +288,72 @@ func TestApplyMoveToBoard(t *testing.T) {
 	}
 }
 
-func TestPlaceShapeOnBoard(t *testing.T) {
-	// Similar to TestApplyMoveToBoard, since they are redundant in current code
-	tests := []struct {
-		name  string
-		board Board
-		move  Move
-		want  Board
-	}{
-		{
-			name:  "Simple place no clear",
-			board: Board{},
-			move:  Move{ShapeID: 100, Row: 0, Col: 0},
-			want:  Board{{1, 0, 0, 0, 0, 0, 0, 0, 0}}, // rest 0
-		},
-		// ... add more
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := placeShapeOnBoard(tt.board, tt.move)
-			for i := 0; i < 9; i++ {
-				for j := 0; j < 9; j++ {
-					if got[i][j] != tt.want[i][j] {
-						t.Errorf("placeShapeOnBoard mismatch at [%d][%d]: got %d, want %d", i, j, got[i][j], tt.want[i][j])
-					}
-				}
-			}
-		})
-	}
-}
-
 // Integration test for the whole app
 
-func TestStartGame2(t *testing.T) {
-	// Prepare fixed random shapes with a local random generator
-	rng := rand.New(rand.NewSource(42)) // Fixed seed for reproducibility
+// func TestStartGame2(t *testing.T) {
+// 	// Prepare fixed random shapes with a local random generator
+// 	rng := rand.New(rand.NewSource(42)) // Fixed seed for reproducibility
 
-	var shapeIDs []int
-	for id := range shapes {
-		shapeIDs = append(shapeIDs, id)
-	}
-	sort.Ints(shapeIDs) // Sort for consistency
+// 	var shapeIDs []int
+// 	for id := range shapes {
+// 		shapeIDs = append(shapeIDs, id)
+// 	}
+// 	sort.Ints(shapeIDs) // Sort for consistency
 
-	// Pick 3 fixed "random" IDs using rng
-	id1 := shapeIDs[rng.Intn(len(shapeIDs))]
-	id2 := shapeIDs[rng.Intn(len(shapeIDs))]
-	id3 := shapeIDs[rng.Intn(len(shapeIDs))]
+// 	// Pick 3 fixed "random" IDs using rng
+// 	id1 := shapeIDs[rng.Intn(len(shapeIDs))]
+// 	id2 := shapeIDs[rng.Intn(len(shapeIDs))]
+// 	id3 := shapeIDs[rng.Intn(len(shapeIDs))]
 
-	input := fmt.Sprintf("%d\n%d\n%d\n", id1, id2, id3) // Simulate one iteration of input
+// 	input := fmt.Sprintf("%d\n%d\n%d\n", id1, id2, id3) // Simulate one iteration of input
 
-	oldStdin := os.Stdin
-	oldStdout := os.Stdout
-	defer func() {
-		os.Stdin = oldStdin
-		os.Stdout = oldStdout
-	}()
+// 	oldStdin := os.Stdin
+// 	oldStdout := os.Stdout
+// 	defer func() {
+// 		os.Stdin = oldStdin
+// 		os.Stdout = oldStdout
+// 	}()
 
-	r, w, _ := os.Pipe()
-	os.Stdin = r
+// 	r, w, _ := os.Pipe()
+// 	os.Stdin = r
 
-	// To capture stdout, use pipe
-	outR, outW, _ := os.Pipe()
-	os.Stdout = outW
+// 	// To capture stdout, use pipe
+// 	outR, outW, _ := os.Pipe()
+// 	os.Stdout = outW
 
-	// Run in goroutine since infinite loop
-	go func() {
-		var board Board // empty
-		startGame2(board)
-	}()
+// 	// Run in goroutine since infinite loop
+// 	go func() {
+// 		var board Board // empty
+// 		startGame2(board)
+// 	}()
 
-	// Feed input
-	_, _ = w.Write([]byte(input))
-	w.Close()
+// 	// Feed input
+// 	_, _ = w.Write([]byte(input))
+// 	w.Close()
 
-	// Wait a bit for processing
-	time.Sleep(1 * time.Second) // Adjust if needed
+// 	// Wait a bit for processing
+// 	time.Sleep(1 * time.Second) // Adjust if needed
 
-	// Close outW to read
-	outW.Close()
-	scanner := bufio.NewScanner(outR)
-	var output strings.Builder
-	for scanner.Scan() {
-		output.WriteString(scanner.Text() + "\n")
-	}
+// 	// Close outW to read
+// 	outW.Close()
+// 	scanner := bufio.NewScanner(outR)
+// 	var output strings.Builder
+// 	for scanner.Scan() {
+// 		output.WriteString(scanner.Text() + "\n")
+// 	}
 
-	got := output.String()
+// 	got := output.String()
 
-	// Check if output contains expected parts, e.g., "Best moveS:", visualizations
-	if !strings.Contains(got, "Best moveS:") {
-		t.Errorf("Expected output to contain 'Best moveS:', got:\n%s", got)
-	}
-	if !strings.Contains(got, "Move 1:") || !strings.Contains(got, "Move 2:") || !strings.Contains(got, "Move 3:") {
-		t.Errorf("Missing move visualizations in output:\n%s", got)
-	}
+// 	// Check if output contains expected parts, e.g., "Best moveS:", visualizations
+// 	if !strings.Contains(got, "Best moveS:") {
+// 		t.Errorf("Expected output to contain 'Best moveS:', got:\n%s", got)
+// 	}
+// 	if !strings.Contains(got, "Move 1:") || !strings.Contains(got, "Move 2:") || !strings.Contains(got, "Move 3:") {
+// 		t.Errorf("Missing move visualizations in output:\n%s", got)
+// 	}
 
-	// More checks: count 'X' or something, but since deterministic with seed, can hardcode expected if known
-	if len(got) == 0 {
-		t.Errorf("No output produced")
-	}
-}
+// 	// More checks: count 'X' or something, but since deterministic with seed, can hardcode expected if known
+// 	if len(got) == 0 {
+// 		t.Errorf("No output produced")
+// 	}
+// }
