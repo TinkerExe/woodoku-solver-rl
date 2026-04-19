@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"os"
 	"strconv"
@@ -202,10 +203,11 @@ func checkAndRemoveCompletedRegions(board Board) Board {
 func evaluateBoard(board Board) int {
 	const (
 		PENALTY_PER_BLOCK     = 10000 // Penalty for each filled cell
-		PENALTY_PER_PERIMETER = 200   // Penalty per perimeter unit
-		PENALTY_JAGGED_EDGE   = 500   // Penalty for filled cells with empty neighbors
+		PENALTY_PER_PERIMETER = 200   // Penalty per perimeter unit (edges count as walls)
 		PENALTY_SINGLE_EMPTY  = 500   // Penalty for empty cells between two filled cells
 		BONUS_FREE_CUBE       = 1000  // Bonus for each fully empty 3x3 cube
+		BONUS_LINE_7          = 600   // Bonus for a line with 7/9 filled (2 away from clear)
+		BONUS_LINE_8          = 3500  // Bonus for a line with 8/9 filled (1 away from clear)
 	)
 
 	score := 0
@@ -221,25 +223,24 @@ func evaluateBoard(board Board) int {
 	}
 	score -= filledCount * PENALTY_PER_BLOCK
 
-	// 2. Penalty for perimeter of filled shapes
+	// 2. Penalty for perimeter of filled shapes (board edges count as walls)
 	perimeter := 0
 	for i := 0; i < 9; i++ {
 		for j := 0; j < 9; j++ {
 			if board[i][j] != 1 {
 				continue
 			}
-			// Count open sides (up, down, left, right)
 			sides := 4
-			if i > 0 && board[i-1][j] == 1 { // Up
+			if i == 0 || board[i-1][j] == 1 {
 				sides--
 			}
-			if i < 8 && board[i+1][j] == 1 { // Down
+			if i == 8 || board[i+1][j] == 1 {
 				sides--
 			}
-			if j > 0 && board[i][j-1] == 1 { // Left
+			if j == 0 || board[i][j-1] == 1 {
 				sides--
 			}
-			if j < 8 && board[i][j+1] == 1 { // Right
+			if j == 8 || board[i][j+1] == 1 {
 				sides--
 			}
 			perimeter += sides
@@ -247,36 +248,16 @@ func evaluateBoard(board Board) int {
 	}
 	score -= perimeter * PENALTY_PER_PERIMETER
 
-	// 3. Penalty for jagged edges (filled cells with empty neighbors)
-	jaggedCount := 0
-	for i := 0; i < 9; i++ {
-		for j := 0; j < 9; j++ {
-			if board[i][j] != 1 {
-				continue
-			}
-			// Check if any neighbor is empty
-			if (i > 0 && board[i-1][j] == 0) || // Up
-				(i < 8 && board[i+1][j] == 0) || // Down
-				(j > 0 && board[i][j-1] == 0) || // Left
-				(j < 8 && board[i][j+1] == 0) { // Right
-				jaggedCount++
-			}
-		}
-	}
-	score -= jaggedCount * PENALTY_JAGGED_EDGE
-
-	// 4. Penalty for single empty cells between two filled cells
+	// 3. Penalty for single empty cells between two filled cells
 	singleEmptyCount := 0
 	for i := 0; i < 9; i++ {
 		for j := 0; j < 9; j++ {
 			if board[i][j] != 0 {
 				continue
 			}
-			// Check vertical: empty cell with filled cells above and below
 			if i > 0 && i < 8 && board[i-1][j] == 1 && board[i+1][j] == 1 {
 				singleEmptyCount++
 			}
-			// Check horizontal: empty cell with filled cells left and right
 			if j > 0 && j < 8 && board[i][j-1] == 1 && board[i][j+1] == 1 {
 				singleEmptyCount++
 			}
@@ -284,7 +265,7 @@ func evaluateBoard(board Board) int {
 	}
 	score -= singleEmptyCount * PENALTY_SINGLE_EMPTY
 
-	// 5. Bonus for fully empty 3x3 cubes
+	// 4. Bonus for fully empty 3x3 cubes
 	freeCubeCount := 0
 	for iBase := 0; iBase <= 6; iBase += 3 {
 		for jBase := 0; jBase <= 6; jBase += 3 {
@@ -307,7 +288,50 @@ func evaluateBoard(board Board) int {
 	}
 	score += freeCubeCount * BONUS_FREE_CUBE
 
-	// Invert score: higher is better
+	lineBonus := func(k int) int {
+		switch k {
+		case 8:
+			return BONUS_LINE_8
+		case 7:
+			return BONUS_LINE_7
+		default:
+			return 0
+		}
+	}
+
+	// 5. Bonus for near-complete lines (rows, columns, 3x3 blocks)
+	for i := range 9 {
+		k := 0
+		for j := range 9 {
+			if board[i][j] == 1 {
+				k++
+			}
+		}
+		score += lineBonus(k)
+	}
+	for j := range 9 {
+		k := 0
+		for i := range 9 {
+			if board[i][j] == 1 {
+				k++
+			}
+		}
+		score += lineBonus(k)
+	}
+	for iBase := 0; iBase <= 6; iBase += 3 {
+		for jBase := 0; jBase <= 6; jBase += 3 {
+			k := 0
+			for i := iBase; i < iBase+3; i++ {
+				for j := jBase; j < jBase+3; j++ {
+					if board[i][j] == 1 {
+						k++
+					}
+				}
+			}
+			score += lineBonus(k)
+		}
+	}
+
 	return score
 }
 
@@ -326,12 +350,14 @@ func visualizeMove(board Board, move Move) {
 	}
 	for _, row := range visualBoard {
 		for _, cell := range row {
-			if cell == 'X' {
-				fmt.Print("X ")
-			} else {
-				fmt.Printf("%d ", cell)
+			switch cell {
+			case 'X':
+				fmt.Print("▣ ")
+			case 1:
+				fmt.Print("■ ")
+			default:
+				fmt.Print("· ")
 			}
-
 		}
 		fmt.Println()
 	}
@@ -396,6 +422,19 @@ func goodAlg(board Board, shapes []Shape) []Move {
 }
 
 func main() {
+	modeAuto := flag.Bool("a", false, "Auto mode: play to completion and print result")
+	modeIter := flag.Bool("i", false, "Iterative mode: show each turn, wait for Enter")
+	flag.Parse()
+
+	if *modeAuto {
+		runGame(false)
+		return
+	}
+	if *modeIter {
+		runGame(true)
+		return
+	}
+
 	var board Board // 9x9 board initialized to zeros
 	board = [9][9]int{
 		{0, 0, 0, 0, 0, 0, 0, 0, 0},
