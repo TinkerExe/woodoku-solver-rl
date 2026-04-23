@@ -18,6 +18,7 @@ from vision.detector  import find_board, read_board, find_piece_areas, detect_pi
 from vision.solver    import solve, close as solver_close
 from vision.automator import execute_moves
 from vision.shapes    import SHAPE_SIZE
+from vision.logger    import log_turn, log_warning, log_game_over
 
 
 # How long to wait before re-trying if detection fails
@@ -77,7 +78,9 @@ def run_loop(dry_run: bool = False) -> None:
             piece_ids   = _detect_pieces(img, piece_rects)
             if piece_ids is None:
                 consecutive_failures += 1
+                msg = f"Piece detection failed ({consecutive_failures}/{MAX_FAILURES})"
                 print(f"[{consecutive_failures}/{MAX_FAILURES}] Piece detection failed — retrying …")
+                log_warning(msg)
                 if consecutive_failures >= MAX_FAILURES:
                     print("Too many failures, stopping.")
                     break
@@ -92,10 +95,14 @@ def run_loop(dry_run: bool = False) -> None:
             moves = solve(board_state, piece_ids)
             if moves is None:
                 print("Solver says GAME OVER (or no valid moves).")
+                log_game_over(turn)
                 break
 
             for shape_id, row, col in moves:
-                print(f"  shape {shape_id:3d} → board[{row}][{col}]")
+                h, w = SHAPE_SIZE.get(shape_id, (1, 1))
+                print(f"  shape {shape_id:3d} ({h}×{w}) → board[{row}][{col}]")
+
+            log_turn(turn, board_state, piece_ids, moves, SHAPE_SIZE)
 
             # ── 6. execute ───────────────────────────────────────────────────
             if not dry_run:

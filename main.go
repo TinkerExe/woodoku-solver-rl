@@ -200,20 +200,32 @@ func checkAndRemoveCompletedRegions(board Board) Board {
 }
 
 // evaluateBoard evaluates the board state
-
 func evaluateBoard(board Board) int {
 	const (
-		PENALTY_PER_BLOCK     = 10000 // Penalty for each filled cell
-		PENALTY_PER_PERIMETER = 200   // Penalty per perimeter unit (edges count as walls)
-		PENALTY_SINGLE_EMPTY  = 500   // Penalty for empty cells between two filled cells
-		BONUS_FREE_CUBE       = 1000  // Bonus for each fully empty 3x3 cube
-		BONUS_LINE_7          = 600   // Bonus for a line with 7/9 filled (2 away from clear)
-		BONUS_LINE_8          = 3500  // Bonus for a line with 8/9 filled (1 away from clear)
+		PENALTY_PER_BLOCK     = 10000 // penalty for each filled cell
+		PENALTY_PER_PERIMETER = 500   // prefer compact placements
+		BONUS_FREE_CUBE       = 300   // small bonus for empty 3x3 box — kept low to avoid corner-hoarding
+		BONUS_LINE_6          = 200   // bonus for row/col/box with 6/9 filled
+		BONUS_LINE_7          = 900   // bonus for row/col/box with 7/9 filled
+		BONUS_LINE_8          = 5000  // bonus for row/col/box with 8/9 filled
+
+		// Isolated empty region penalties (by connected-region size).
+		PENALTY_TRAPPED_1 = 25000
+		PENALTY_TRAPPED_2 = 10000
+		PENALTY_TRAPPED_3 = 4000
+		PENALTY_TRAPPED_4 = 1500
+		PENALTY_TRAPPED_5 = 500
+
+		// Extra penalty for empty cells with exactly 3 sides blocked by filled cells
+		// OR board walls. Such cells are "almost trapped" — one more neighbour fills
+		// and they become permanently unreachable. The 4-sided case is already
+		// covered by PENALTY_TRAPPED_1 via flood-fill.
+		PENALTY_ACCESS_3 = 3000
 	)
 
 	score := 0
 
-	// 1. Penalty for each filled block (cell)
+	// 1. Penalty for each filled block
 	filledCount := 0
 	for i := 0; i < 9; i++ {
 		for j := 0; j < 9; j++ {
@@ -224,7 +236,7 @@ func evaluateBoard(board Board) int {
 	}
 	score -= filledCount * PENALTY_PER_BLOCK
 
-	// 2. Penalty for perimeter of filled shapes (board edges count as walls)
+	// 2. Perimeter penalty (exposed edges facing empty cells or board boundary)
 	perimeter := 0
 	for i := 0; i < 9; i++ {
 		for j := 0; j < 9; j++ {
@@ -232,16 +244,16 @@ func evaluateBoard(board Board) int {
 				continue
 			}
 			sides := 4
-			if i == 0 || board[i-1][j] == 1 {
+			if i > 0 && board[i-1][j] == 1 {
 				sides--
 			}
-			if i == 8 || board[i+1][j] == 1 {
+			if i < 8 && board[i+1][j] == 1 {
 				sides--
 			}
-			if j == 0 || board[i][j-1] == 1 {
+			if j > 0 && board[i][j-1] == 1 {
 				sides--
 			}
-			if j == 8 || board[i][j+1] == 1 {
+			if j < 8 && board[i][j+1] == 1 {
 				sides--
 			}
 			perimeter += sides
@@ -249,45 +261,56 @@ func evaluateBoard(board Board) int {
 	}
 	score -= perimeter * PENALTY_PER_PERIMETER
 
-	// 3. Penalty for single empty cells between two filled cells
-	singleEmptyCount := 0
+	// 3. Isolated empty region penalty via flood-fill (4-connectivity).
+	//    Regions fully enclosed by filled cells score highest penalty.
+	//    Large open areas are not penalised (size > 5).
+	var visited [9][9]bool
+	var floodFill func(r, c int) int
+	floodFill = func(r, c int) int {
+		if r < 0 || r >= 9 || c < 0 || c >= 9 || visited[r][c] || board[r][c] != 0 {
+			return 0
+		}
+		visited[r][c] = true
+		return 1 + floodFill(r+1, c) + floodFill(r-1, c) + floodFill(r, c+1) + floodFill(r, c-1)
+	}
 	for i := 0; i < 9; i++ {
 		for j := 0; j < 9; j++ {
-			if board[i][j] != 0 {
-				continue
-			}
-			if i > 0 && i < 8 && board[i-1][j] == 1 && board[i+1][j] == 1 {
-				singleEmptyCount++
-			}
-			if j > 0 && j < 8 && board[i][j-1] == 1 && board[i][j+1] == 1 {
-				singleEmptyCount++
+			if !visited[i][j] && board[i][j] == 0 {
+				size := floodFill(i, j)
+				switch size {
+				case 1:
+					score -= PENALTY_TRAPPED_1
+				case 2:
+					score -= PENALTY_TRAPPED_2
+				case 3:
+					score -= PENALTY_TRAPPED_3
+				case 4:
+					score -= PENALTY_TRAPPED_4
+				case 5:
+					score -= PENALTY_TRAPPED_5
+				}
 			}
 		}
 	}
-	score -= singleEmptyCount * PENALTY_SINGLE_EMPTY
 
-	// 4. Bonus for fully empty 3x3 cubes
-	freeCubeCount := 0
+	// 4. Bonus for fully empty 3x3 boxes
 	for iBase := 0; iBase <= 6; iBase += 3 {
 		for jBase := 0; jBase <= 6; jBase += 3 {
 			isEmpty := true
+		outerCheck:
 			for i := iBase; i < iBase+3; i++ {
 				for j := jBase; j < jBase+3; j++ {
 					if board[i][j] != 0 {
 						isEmpty = false
-						break
+						break outerCheck
 					}
-				}
-				if !isEmpty {
-					break
 				}
 			}
 			if isEmpty {
-				freeCubeCount++
+				score += BONUS_FREE_CUBE
 			}
 		}
 	}
-	score += freeCubeCount * BONUS_FREE_CUBE
 
 	lineBonus := func(k int) int {
 		switch k {
@@ -295,12 +318,14 @@ func evaluateBoard(board Board) int {
 			return BONUS_LINE_8
 		case 7:
 			return BONUS_LINE_7
+		case 6:
+			return BONUS_LINE_6
 		default:
 			return 0
 		}
 	}
 
-	// 5. Bonus for near-complete lines (rows, columns, 3x3 blocks)
+	// 5. Near-complete bonuses for rows, columns, and 3x3 boxes
 	for i := range 9 {
 		k := 0
 		for j := range 9 {
@@ -330,6 +355,32 @@ func evaluateBoard(board Board) int {
 				}
 			}
 			score += lineBonus(k)
+		}
+	}
+
+	// 6. Penalty for empty cells with 3 sides blocked (walls + filled cells).
+	//    These are "pre-trapped" — one more filled neighbour makes them unreachable.
+	for i := 0; i < 9; i++ {
+		for j := 0; j < 9; j++ {
+			if board[i][j] != 0 {
+				continue
+			}
+			blocked := 0
+			if i == 0 || board[i-1][j] == 1 {
+				blocked++
+			}
+			if i == 8 || board[i+1][j] == 1 {
+				blocked++
+			}
+			if j == 0 || board[i][j-1] == 1 {
+				blocked++
+			}
+			if j == 8 || board[i][j+1] == 1 {
+				blocked++
+			}
+			if blocked == 3 {
+				score -= PENALTY_ACCESS_3
+			}
 		}
 	}
 
