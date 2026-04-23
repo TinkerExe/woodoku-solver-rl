@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 )
 
 // Shape represents a game piece with a grid, height, and width
@@ -421,9 +422,56 @@ func goodAlg(board Board, shapes []Shape) []Move {
 	return bestMoves
 }
 
+// runCVMode reads board+pieces from stdin repeatedly, outputs moves.
+// Input per iteration: 9 lines of "0 1 0 ..." (board rows), then "id1 id2 id3".
+// Output per iteration: 3 lines of "shapeID row col", then "DONE". Or "GAME_OVER".
+func runCVMode() {
+	scanner := bufio.NewScanner(os.Stdin)
+	var board Board
+	for {
+		for i := 0; i < 9; i++ {
+			if !scanner.Scan() {
+				return
+			}
+			for j, f := range strings.Fields(scanner.Text()) {
+				board[i][j], _ = strconv.Atoi(f)
+			}
+		}
+		if !scanner.Scan() {
+			return
+		}
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 3 {
+			return
+		}
+		id1, _ := strconv.Atoi(fields[0])
+		id2, _ := strconv.Atoi(fields[1])
+		id3, _ := strconv.Atoi(fields[2])
+
+		s1, ok1 := shapes[id1]
+		s2, ok2 := shapes[id2]
+		s3, ok3 := shapes[id3]
+		if !ok1 || !ok2 || !ok3 {
+			fmt.Println("GAME_OVER")
+			return
+		}
+
+		moves := goodAlg(board, []Shape{s1, s2, s3})
+		if len(moves) < 3 {
+			fmt.Println("GAME_OVER")
+			return
+		}
+		for _, m := range moves {
+			fmt.Printf("%d %d %d\n", m.ShapeID, m.Row, m.Col)
+		}
+		fmt.Println("DONE")
+	}
+}
+
 func main() {
 	modeAuto := flag.Bool("a", false, "Auto mode: play to completion and print result")
 	modeIter := flag.Bool("i", false, "Iterative mode: show each turn, wait for Enter")
+	modeCV := flag.Bool("cv", false, "CV mode: read board+pieces from stdin, output moves")
 	flag.Parse()
 
 	if *modeAuto {
@@ -432,6 +480,10 @@ func main() {
 	}
 	if *modeIter {
 		runGame(true)
+		return
+	}
+	if *modeCV {
+		runCVMode()
 		return
 	}
 
