@@ -199,188 +199,120 @@ func checkAndRemoveCompletedRegions(board Board) Board {
 	return board
 }
 
-// evaluateBoard evaluates the board state
+// evaluateBoard evaluates the board state.
+//
+// Three signals:
+//
+//  1. blockPenalty per filled cell — line clears are naturally rewarded.
+//
+//  2. emptyEdgePenalty per empty cell on the board boundary — mild constant
+//     pressure to fill edges before they become isolated.
+//
+//  3. Per-region penalties (graph.go):
+//     - Small regions (size 1–4): always penalised, heavily on edges/corners.
+//     - Chain regions (elongation ≥ 3×, or 1 cell wide): penalised for sizes
+//     up to 8, because thin channels need rare piece orientations to fill.
+//     Edge/corner touching always adds a multiplier; the worst case is an
+//     isolated or chain region wedged into a corner.
 func evaluateBoard(board Board) int {
 	const (
-		PENALTY_PER_BLOCK     = 10000 // penalty for each filled cell
-		PENALTY_PER_PERIMETER = 500   // prefer compact placements
-		BONUS_FREE_CUBE       = 300   // small bonus for empty 3x3 box — kept low to avoid corner-hoarding
-		BONUS_LINE_6          = 200   // bonus for row/col/box with 6/9 filled
-		BONUS_LINE_7          = 900   // bonus for row/col/box with 7/9 filled
-		BONUS_LINE_8          = 5000  // bonus for row/col/box with 8/9 filled
+		// One line clear = 9 cells → +9×blockPenalty. Keep this the reference.
+		blockPenalty = 3_000
 
-		// Isolated empty region penalties (by connected-region size).
-		PENALTY_TRAPPED_1 = 25000
-		PENALTY_TRAPPED_2 = 10000
-		PENALTY_TRAPPED_3 = 4000
-		PENALTY_TRAPPED_4 = 1500
-		PENALTY_TRAPPED_5 = 500
+		// Mild per-cell penalty for every empty cell on the board boundary.
+		// Filling an edge cell saves this → edge placements are slightly preferred.
+		emptyEdgePenalty   = 400
+		emptyCornerPenalty = 700 // stacks on top of emptyEdgePenalty for corners
 
-		// Extra penalty for empty cells with exactly 3 sides blocked by filled cells
-		// OR board walls. Such cells are "almost trapped" — one more neighbour fills
-		// and they become permanently unreachable. The 4-sided case is already
-		// covered by PENALTY_TRAPPED_1 via flood-fill.
-		PENALTY_ACCESS_3 = 3000
+		// Per-region base penalties by size (always applied, compact or not).
+		penaltySize1 = 50_000
+		penaltySize2 = 20_000
+		penaltySize3 = 9_000
+		penaltySize4 = 3_500
+
+		// Chain penalty: applied to regions of any size (up to 8) when the
+		// region is thin/elongated (isChain() == true). A 1×6 corridor or a
+		// zigzag can only be filled by specific piece shapes, making them risky.
+		penaltyChain = 6_000
+
+		// Extra when a penalised region touches the board boundary.
+		// Edge cells have one fewer neighbour direction, making escape harder.
+		extraEdge   = 250_000
+		extraCorner = 200_000 // stacks on top of extraEdge
+
+		// Penalties for small isolated groups of *filled* cells.
+		// Smaller than empty-isolation penalties: a stray filled cell won't
+		// block placement, but it's wasted until the rest of its row/col/box fills.
+		penaltyFilledSize1 = 7_000
+		penaltyFilledSize2 = 3_000
+		penaltyFilledSize3 = 1_200
 	)
 
 	score := 0
 
-	// 1. Penalty for each filled block
-	filledCount := 0
+	// Signal 1 + 2: per-cell pass.
 	for i := 0; i < 9; i++ {
 		for j := 0; j < 9; j++ {
 			if board[i][j] == 1 {
-				filledCount++
-			}
-		}
-	}
-	score -= filledCount * PENALTY_PER_BLOCK
-
-	// 2. Perimeter penalty (exposed edges facing empty cells or board boundary)
-	perimeter := 0
-	for i := 0; i < 9; i++ {
-		for j := 0; j < 9; j++ {
-			if board[i][j] != 1 {
+				score -= blockPenalty
 				continue
 			}
-			sides := 4
-			if i > 0 && board[i-1][j] == 1 {
-				sides--
-			}
-			if i < 8 && board[i+1][j] == 1 {
-				sides--
-			}
-			if j > 0 && board[i][j-1] == 1 {
-				sides--
-			}
-			if j < 8 && board[i][j+1] == 1 {
-				sides--
-			}
-			perimeter += sides
-		}
-	}
-	score -= perimeter * PENALTY_PER_PERIMETER
-
-	// 3. Isolated empty region penalty via flood-fill (4-connectivity).
-	//    Regions fully enclosed by filled cells score highest penalty.
-	//    Large open areas are not penalised (size > 5).
-	var visited [9][9]bool
-	var floodFill func(r, c int) int
-	floodFill = func(r, c int) int {
-		if r < 0 || r >= 9 || c < 0 || c >= 9 || visited[r][c] || board[r][c] != 0 {
-			return 0
-		}
-		visited[r][c] = true
-		return 1 + floodFill(r+1, c) + floodFill(r-1, c) + floodFill(r, c+1) + floodFill(r, c-1)
-	}
-	for i := 0; i < 9; i++ {
-		for j := 0; j < 9; j++ {
-			if !visited[i][j] && board[i][j] == 0 {
-				size := floodFill(i, j)
-				switch size {
-				case 1:
-					score -= PENALTY_TRAPPED_1
-				case 2:
-					score -= PENALTY_TRAPPED_2
-				case 3:
-					score -= PENALTY_TRAPPED_3
-				case 4:
-					score -= PENALTY_TRAPPED_4
-				case 5:
-					score -= PENALTY_TRAPPED_5
+			// Empty cell on the board boundary.
+			if i == 0 || i == 8 || j == 0 || j == 8 {
+				score -= emptyEdgePenalty
+				if (i == 0 || i == 8) && (j == 0 || j == 8) {
+					score -= emptyCornerPenalty
 				}
 			}
 		}
 	}
 
-	// 4. Bonus for fully empty 3x3 boxes
-	for iBase := 0; iBase <= 6; iBase += 3 {
-		for jBase := 0; jBase <= 6; jBase += 3 {
-			isEmpty := true
-		outerCheck:
-			for i := iBase; i < iBase+3; i++ {
-				for j := jBase; j < jBase+3; j++ {
-					if board[i][j] != 0 {
-						isEmpty = false
-						break outerCheck
-					}
-				}
+	// Signal 3: per-region penalties.
+	for _, r := range emptyRegions(board) {
+		penalised := false
+
+		// Small compact regions are always dangerous.
+		switch r.Size {
+		case 1:
+			score -= penaltySize1
+			penalised = true
+		case 2:
+			score -= penaltySize2
+			penalised = true
+		case 3:
+			score -= penaltySize3
+			penalised = true
+		case 4:
+			score -= penaltySize4
+			penalised = true
+		}
+
+		// Thin/chain regions up to size 8: hard to fill regardless of total size.
+		if r.Size <= 8 && r.isChain() {
+			score -= penaltyChain
+			penalised = true
+		}
+
+		// Edge/corner multiplier for any penalised region.
+		if penalised {
+			if r.OnEdge {
+				score -= extraEdge
 			}
-			if isEmpty {
-				score += BONUS_FREE_CUBE
+			if r.OnCorner {
+				score -= extraCorner
 			}
 		}
 	}
 
-	lineBonus := func(k int) int {
-		switch k {
-		case 8:
-			return BONUS_LINE_8
-		case 7:
-			return BONUS_LINE_7
-		case 6:
-			return BONUS_LINE_6
-		default:
-			return 0
-		}
-	}
-
-	// 5. Near-complete bonuses for rows, columns, and 3x3 boxes
-	for i := range 9 {
-		k := 0
-		for j := range 9 {
-			if board[i][j] == 1 {
-				k++
-			}
-		}
-		score += lineBonus(k)
-	}
-	for j := range 9 {
-		k := 0
-		for i := range 9 {
-			if board[i][j] == 1 {
-				k++
-			}
-		}
-		score += lineBonus(k)
-	}
-	for iBase := 0; iBase <= 6; iBase += 3 {
-		for jBase := 0; jBase <= 6; jBase += 3 {
-			k := 0
-			for i := iBase; i < iBase+3; i++ {
-				for j := jBase; j < jBase+3; j++ {
-					if board[i][j] == 1 {
-						k++
-					}
-				}
-			}
-			score += lineBonus(k)
-		}
-	}
-
-	// 6. Penalty for empty cells with 3 sides blocked (walls + filled cells).
-	//    These are "pre-trapped" — one more filled neighbour makes them unreachable.
-	for i := 0; i < 9; i++ {
-		for j := 0; j < 9; j++ {
-			if board[i][j] != 0 {
-				continue
-			}
-			blocked := 0
-			if i == 0 || board[i-1][j] == 1 {
-				blocked++
-			}
-			if i == 8 || board[i+1][j] == 1 {
-				blocked++
-			}
-			if j == 0 || board[i][j-1] == 1 {
-				blocked++
-			}
-			if j == 8 || board[i][j+1] == 1 {
-				blocked++
-			}
-			if blocked == 3 {
-				score -= PENALTY_ACCESS_3
-			}
+	// Signal 4: penalties for small isolated groups of filled cells.
+	for _, r := range filledRegions(board) {
+		switch r.Size {
+		case 1:
+			score -= penaltyFilledSize1
+		case 2:
+			score -= penaltyFilledSize2
+		case 3:
+			score -= penaltyFilledSize3
 		}
 	}
 
