@@ -9,6 +9,7 @@ from gymnasium import spaces
 from woodoku.core.rules import apply_move, empty_board, get_legal_moves_mask, is_terminal, score_for_move
 from woodoku.core.types import BOARD_SIZE, BoardArray, PieceID
 from .action import ACTION_SPACE_SIZE, N_SLOTS, decode
+from .action_masking import action_masks_for
 from .observation import PIECE_OBS_DIM, piece_to_canvas
 from .piece_generator import PieceGenerator, UniformGenerator
 
@@ -57,14 +58,7 @@ class WoodokuEnv(gym.Env):
         return self._obs(), reward, terminated, False, self._info()
 
     def action_masks(self) -> np.ndarray:
-        m = np.zeros(ACTION_SPACE_SIZE, dtype=bool)
-        for slot in range(N_SLOTS):
-            if not self._active[slot]:
-                continue
-            sub = get_legal_moves_mask(self._board, self._pieces[slot]).reshape(-1)
-            base = slot * BOARD_SIZE * BOARD_SIZE
-            m[base : base + BOARD_SIZE * BOARD_SIZE] = sub
-        return m
+        return action_masks_for(self._board, self._pieces, self._active)
 
     def render(self):
         if self.render_mode != "ansi":

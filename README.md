@@ -3,47 +3,98 @@
 ## Установка (через uv)
 
 ```bash
-# Go бинарник в корень репозитория
+# Go бинарник в корень репозитория (нужен для cross-check правил, не для игры через RL)
 cd go-solver && go build -o ../woodoku-solver.exe . && cd ..
 
-# Python зависимости + dev/ml extras
+# Python + ML + dev
 uv sync --extra ml --extra dev
 ```
 
-## Запуск
+После установки доступна команда `uv run woodoku …` (entry point из `pyproject.toml`).
+
+## Команды (`woodoku` или `python -m woodoku`)
+
+| Режим | Команда | Назначение |
+|--------|---------|------------|
+| Обучение | `uv run woodoku train [--total-timesteps N] [--n-envs K] [--seed S] [--eval-episodes M] [--log-dir DIR]` | MaskablePPO, чекпоинт в `src/woodoku/agent/checkpoints/` |
+| Инференс, симулятор | `uv run woodoku infer-sim --model PATH/ppo_....zip [--episodes N] [--seed-base S] [--render]` | Политика в `WoodokuEnv` в терминале |
+| Инференс, игра на экране | `uv run woodoku infer-web --model PATH/ppo_....zip [--dry]` | Захват экрана + drag; без мыши в `--dry` доска эволюционирует по `core/rules` от первого скрина |
+| Калибровка CV | `uv run woodoku calibrate [PREFIX]` | `PREFIX_raw.png`, `PREFIX_debug.png`, маски и подписи id/`?` на фигурах |
+| Cross-check Python↔Go | `uv run woodoku crosscheck [--n 2000] [--seed 0] [--binary PATH]` | Сверка `apply_move` с `woodoku-solver.exe -apply` |
+
+Эквиваленты через модуль:
+
+- `uv run python -m woodoku …` — то же, что `uv run woodoku …`
+- `uv run python -m woodoku.tools.train_agent …` — только обучение (как раньше)
+- `uv run python -m woodoku.tools.infer_sim …` — только симулятор
+- `uv run python -m woodoku.tools.crosscheck_simulator …` — только cross-check
+
+Старый вход `python -m woodoku.tools.run_bot` теперь требует **`--model …`** и проксирует в `woodoku infer-web` (Go-солвер из бота убран).
+
+### Примеры
 
 ```bash
-# dry-run бота (без перетаскивания мышью)
-uv run python -m woodoku.tools.run_bot --dry
+# Быстрый smoke train
+uv run woodoku train --total-timesteps 4096 --n-envs 2 --eval-episodes 3
 
-# калибровка
-uv run python -m woodoku.tools.calibrate
+# Политика в numpy-симуляторе с печатью поля
+uv run woodoku infer-sim --model src/woodoku/agent/checkpoints/ppo_woodoku_seed0.zip --episodes 2 --render
+
+# Реальная игра (Windows / BlueStacks и т.п.)
+uv run woodoku infer-web --model src/woodoku/agent/checkpoints/ppo_woodoku_seed0.zip
+
+# Проверка распознавания без мыши
+uv run woodoku infer-web --model ... --dry
 ```
 
-## ML / RL training
+После любого изменения `src/woodoku/core/rules.py`:
 
 ```bash
-# smoke-train
-uv run python -m woodoku.tools.train_agent --total-timesteps 4096 --n-envs 2 --eval-episodes 3
-
-# после любого изменения core/rules.py обязательно cross-check
-uv run python -m woodoku.tools.crosscheck_simulator --n 5000 --seed 0
+uv run woodoku crosscheck --n 5000 --seed 0
 ```
 
-Чекпоинты сохраняются в `src/woodoku/agent/checkpoints/`.
+### TensorBoard из WSL → браузер на Windows
+
+Скаляры вида **`rollout/ep_rew_mean`** / **`rollout/ep_len_mean`** появляются, когда при обучении задан **`--log-dir`**: среды оборачиваются в `Monitor` (см. `agent/train.py`), иначе SB3 часто пишет только `train/*`.
+
+По умолчанию сервис слушает только loopback **внутри** Linux, с хоста страница не откроется.
+
+1. Запускай с привязкой ко всем интерфейсам:
+
+```bash
+uv run tensorboard --logdir runs/exp1 --bind_all
+```
+
+2. В Chrome/Edge на **Windows** открой: **`http://127.0.0.1:6006`** (или `http://localhost:6006`).
+
+3. Если всё равно пусто: узнай IPv4 WSL. Команда `hostname -I` есть не везде (на Arch без `inetutils` её нет) — тогда, например: `ip -4 -br addr show eth0` или `ip -4 route get 1.1.1.1 | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}'`. На Windows открой `http://ТОТ_IP:6006`.
+
+## Почему на `calibration_*_debug.png` бывает «?»
+
+- **Узкая зона трея**: раньше три прямоугольника не перекрывались — часть фигуры могла оказаться вне своего ROI. Сейчас зоны **шире и перекрываются** (`geometry.py`: `PIECE_SLOT_WIDTH_FRAC`, `PIECE_ZONE_HEIGHT_FRAC`).
+- **Две фигуры в одном кропе**: при перекрытии соседний кусок давал лишние blob’ы — добавлены **фильтр по краю ROI**, **closing** маски и **fallback по сетке пикселей** в `detect_piece_id`.
+- **HSV**: если тема/яркость другие, подстройте `_PIECE_HSV_*` в `recognition/masks.py`.
+
+Переснимите калибровку: `uv run woodoku calibrate`.
+
+## Логика `infer-web`
+
+- Держим **текущую тройку** `(id слота 0..2)` и **active**, пока все три не поставлены.
+- После drag сравниваем доску до/после; если **нет изменений** — ход не принят, **та же тройка**, агент снова выбирает действие.
+- Один шаг = **одно** предсказание политики и **один** drag (не пакет из трёх ходов Go).
 
 ## Структура
 
 ```
-go-solver/                  # Go solver (unchanged logic + apply mode)
+go-solver/                  # Go: apply mode для cross-check
 src/woodoku/core/           # numpy simulator
 src/woodoku/env/            # gymnasium env + masking
-src/woodoku/agent/          # training/eval scaffolding
-src/woodoku/recognition/    # CV geometry/masks/classifier
-src/woodoku/capture/        # screenshot capture
-src/woodoku/automation/     # mouse automation
-src/woodoku/solver/         # Go bridge + protocol
-src/woodoku/bot/            # bot loop/logging
-src/woodoku/tools/          # runnable entrypoints
+src/woodoku/agent/          # train / eval / policy
+src/woodoku/recognition/    # CV
+src/woodoku/capture/
+src/woodoku/automation/
+src/woodoku/solver/         # Go bridge (для совместимости модулей, не для infer-web)
+src/woodoku/bot/            # rl_screen, legacy loop
+src/woodoku/tools/
 tests/
 ```

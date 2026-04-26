@@ -8,3 +8,4 @@ calibration_*.png
 woodoku_bot.log
 __pycache__/
 .pytest_cache/
+runs/

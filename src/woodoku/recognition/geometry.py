@@ -8,6 +8,13 @@ BOARD_LEFT_FRAC = 0.03
 BOARD_TOP_FRAC = 0.16
 BOARD_WIDTH_FRAC = 0.95
 
+# Incoming pieces: wide rects centered on each tray column, overlapping so a piece
+# slightly off-center or overlapping the neighbour gutter is still fully inside one crop.
+PIECE_ZONE_GAP_FRAC = 0.05  # vertical gap below 9×9 as fraction of board side
+PIECE_ZONE_HEIGHT_FRAC = 0.42  # height of each crop as fraction of board side
+# Each slot width as fraction of full board width (>1/3 ⇒ overlap between neighbours).
+PIECE_SLOT_WIDTH_FRAC = 0.52
+
 
 def _find_game_area(img: np.ndarray) -> tuple[int, int, int, int]:
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -45,17 +52,19 @@ def find_board(img: np.ndarray) -> tuple[int, int, int, int] | None:
 
 def find_piece_areas(img: np.ndarray, board_rect: tuple[int, int, int, int]) -> list[tuple[int, int, int, int]]:
     bx, by, bw, bh = board_rect
-    zone_height = int(bh * 0.35)
-    zone_top = by + bh + int(bh * 0.1)
-    zone_width = bw // 3
+    zone_height = max(24, int(bh * PIECE_ZONE_HEIGHT_FRAC))
+    zone_top = by + bh + int(bh * PIECE_ZONE_GAP_FRAC)
+    slot_w = max(int(bw * PIECE_SLOT_WIDTH_FRAC), bw // 2)
     h_img, w_img = img.shape[:2]
     rects: list[tuple[int, int, int, int]] = []
     for i in range(3):
-        x = bx + i * zone_width
+        # Tray column centers at 1/6, 3/6, 5/6 of the board (same as three equal columns).
+        center_x = bx + int(bw * (1 + 2 * i) / 6)
+        x = center_x - slot_w // 2
         y = zone_top
         x0 = max(0, min(x, w_img))
         y0 = max(0, min(y, h_img))
-        x1 = max(x0, min(x + zone_width, w_img))
+        x1 = max(x0, min(x + slot_w, w_img))
         y1 = max(y0, min(y + zone_height, h_img))
         rects.append((x0, y0, x1 - x0, y1 - y0))
     return rects
