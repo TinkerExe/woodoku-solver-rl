@@ -22,8 +22,15 @@ def action_masks_for(board: np.ndarray, pieces: list[PieceID], active: np.ndarra
 
 def build_agent_obs(board: np.ndarray, pieces: list[PieceID], active: np.ndarray) -> dict[str, np.ndarray]:
     """Dict observation matching WoodokuEnv (uint8)."""
-    from woodoku.env.observation import PIECE_OBS_DIM, piece_to_canvas
+    from woodoku.env.observation import PIECE_OBS_DIM, board_scalars, piece_to_canvas
 
     z = np.zeros((PIECE_OBS_DIM, PIECE_OBS_DIM), dtype=np.uint8)
     pcs = np.stack([piece_to_canvas(pieces[i]) if active[i] else z for i in range(N_SLOTS)])
     return {"board": board.astype(np.uint8, copy=False).copy(), "pieces": pcs, "active": active.astype(np.uint8, copy=False).copy()}
+
+
+def build_agent_obs_v2(board: np.ndarray, pieces: list[PieceID], active: np.ndarray) -> dict[str, np.ndarray]:
+    """Dict observation matching WoodokuEnv v2 (adds scalars)."""
+    obs = build_agent_obs(board, pieces, active)
+    obs["scalars"] = board_scalars(board, pieces, active)
+    return obs

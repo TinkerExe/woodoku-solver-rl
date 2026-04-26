@@ -9,3 +9,4 @@ woodoku_bot.log
 __pycache__/
 .pytest_cache/
 runs/
+temp-docs/

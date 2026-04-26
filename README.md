@@ -16,9 +16,9 @@ uv sync --extra ml --extra dev
 
 | Режим | Команда | Назначение |
 |--------|---------|------------|
-| Обучение | `uv run woodoku train [--total-timesteps N] [--n-envs K] [--seed S] [--eval-episodes M] [--log-dir DIR]` | MaskablePPO, чекпоинт в `src/woodoku/agent/checkpoints/` |
-| Инференс, симулятор | `uv run woodoku infer-sim --model PATH/ppo_....zip [--episodes N] [--seed-base S] [--render]` | Политика в `WoodokuEnv` в терминале |
-| Инференс, игра на экране | `uv run woodoku infer-web --model PATH/ppo_....zip [--dry]` | Захват экрана + drag; без мыши в `--dry` доска эволюционирует по `core/rules` от первого скрина |
+| Обучение | `uv run woodoku train [--total-timesteps N] [--n-envs K] [--seed S] [--eval-episodes M] [--log-dir DIR] [--checkpoint-freq C] [--eval-freq E] [--save-best] [--early-stop-patience P] [--resume-from PATH] [--save-dir PATH] [--reward-version {v1,v2}] [--obs-version {v1,v2}] [--policy-version {v1,v2}] [--vec-env-type {dummy,subproc}]` | MaskablePPO, чекпоинты/оценка/ранняя остановка/версии obs/policy |
+| Инференс, симулятор | `uv run woodoku infer-sim --model PATH/ppo_....zip [--episodes N] [--seed-base S] [--render] [--reward-version {v1,v2}] [--obs-version {v1,v2}] [--planner {off,rollout}] [--max-simulations K] [--max-depth D] [--time-budget-ms T]` | Политика в `WoodokuEnv` в терминале; optional rollout planner |
+| Инференс, игра на экране | `uv run woodoku infer-web --model PATH/ppo_....zip [--dry] [--obs-version {v1,v2}] [--planner {off,rollout}] [--max-simulations K] [--max-depth D] [--time-budget-ms T]` | Захват экрана + drag; optional planner |
 | Калибровка CV | `uv run woodoku calibrate [PREFIX]` | `PREFIX_raw.png`, `PREFIX_debug.png`, маски и подписи id/`?` на фигурах |
 | Cross-check Python↔Go | `uv run woodoku crosscheck [--n 2000] [--seed 0] [--binary PATH]` | Сверка `apply_move` с `woodoku-solver.exe -apply` |
 
@@ -37,6 +37,17 @@ uv sync --extra ml --extra dev
 # Быстрый smoke train
 uv run woodoku train --total-timesteps 4096 --n-envs 2 --eval-episodes 3
 
+# Train с периодическими чекпоинтами + eval + ранней остановкой
+uv run woodoku train --total-timesteps 2000000 --n-envs 8 --log-dir runs/agent-v2 \
+  --checkpoint-freq 50000 --eval-freq 25000 --save-best --early-stop-patience 8
+
+# Train с reward v2 (шэйпинг), baseline остаётся v1
+uv run woodoku train --total-timesteps 500000 --n-envs 8 --reward-version v2 --log-dir runs/reward-v2
+
+# Train с obs/policy v2 + параллельный сбор в subprocess
+uv run woodoku train --total-timesteps 1000000 --n-envs 8 --reward-version v2 --obs-version v2 \
+  --policy-version v2 --vec-env-type subproc --log-dir runs/v2-subproc
+
 # Политика в numpy-симуляторе с печатью поля
 uv run woodoku infer-sim --model src/woodoku/agent/checkpoints/ppo_woodoku_seed0.zip --episodes 2 --render
 
@@ -45,6 +56,9 @@ uv run woodoku infer-web --model src/woodoku/agent/checkpoints/ppo_woodoku_seed0
 
 # Проверка распознавания без мыши
 uv run woodoku infer-web --model ... --dry
+
+# Инференс в симуляторе с rollout planner (ограничен по бюджету)
+uv run woodoku infer-sim --model ... --obs-version v2 --planner rollout --max-simulations 128 --max-depth 4 --time-budget-ms 20
 ```
 
 После любого изменения `src/woodoku/core/rules.py`:

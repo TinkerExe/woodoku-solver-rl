@@ -8,11 +8,24 @@ from woodoku.env.piece_generator import UniformGenerator
 from woodoku.env.woodoku_env import WoodokuEnv
 
 
-def evaluate(model_path: str, n_episodes: int = 50, seed_base: int = 1000) -> dict:
+def evaluate(
+    model_path: str,
+    n_episodes: int = 50,
+    seed_base: int = 1000,
+    reward_version: str = "v1",
+    obs_version: str = "v1",
+) -> dict:
     model = MaskablePPO.load(model_path)
     rewards, lengths = [], []
     for ep in range(n_episodes):
-        env = ActionMasker(WoodokuEnv(piece_generator=UniformGenerator(seed=seed_base + ep)), lambda e: e.unwrapped.action_masks())
+        env = ActionMasker(
+            WoodokuEnv(
+                piece_generator=UniformGenerator(seed=seed_base + ep),
+                reward_version=reward_version,
+                obs_version=obs_version,
+            ),
+            lambda e: e.unwrapped.action_masks(),
+        )
         obs, _ = env.reset(seed=seed_base + ep)
         ep_r, ep_len = 0.0, 0
         while True:

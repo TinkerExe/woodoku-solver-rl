@@ -6,10 +6,11 @@ import traceback
 import numpy as np
 
 from woodoku.automation.mouse import place_piece
+from woodoku.agent.planner import pick_action_with_rollout
 from woodoku.core.rules import apply_move, is_terminal
 from woodoku.core.shapes import SHAPE_SIZES
 from woodoku.env.action import decode
-from woodoku.env.action_masking import action_masks_for, build_agent_obs
+from woodoku.env.action_masking import action_masks_for, build_agent_obs, build_agent_obs_v2
 
 RETRY_DELAY = 0.35
 MAX_FAILURES = 12
@@ -25,6 +26,11 @@ def run_rl_screen_loop(
     read_board_fn,
     find_piece_areas_fn,
     detect_piece_fn,
+    obs_version: str = "v1",
+    planner: str = "off",
+    max_simulations: int = 128,
+    max_depth: int = 4,
+    time_budget_ms: int = 20,
 ) -> None:
     """Drive the real game with a MaskablePPO model — no Go solver.
 
@@ -93,13 +99,25 @@ def run_rl_screen_loop(
                 continue
 
             pieces = [int(trio_ids[i]) for i in range(3)]
-            obs = build_agent_obs(board, pieces, active)
+            obs = build_agent_obs_v2(board, pieces, active) if obs_version == "v2" else build_agent_obs(board, pieces, active)
             mask = action_masks_for(board, pieces, active)
             if not mask.any():
                 time.sleep(RETRY_DELAY)
                 continue
 
-            action, _ = model.predict(obs, action_masks=mask, deterministic=True)
+            if planner == "rollout":
+                action = pick_action_with_rollout(
+                    model=model,
+                    board=board,
+                    pieces=pieces,
+                    active=active,
+                    obs_version=obs_version,
+                    max_simulations=max_simulations,
+                    max_depth=max_depth,
+                    time_budget_ms=time_budget_ms,
+                )
+            else:
+                action, _ = model.predict(obs, action_masks=mask, deterministic=True)
             slot, row, col = decode(int(action))
             if not active[slot]:
                 continue
