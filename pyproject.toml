@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "woodoku"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "opencv-python>=4.9",
+  "mss>=9.0",
+  "pyautogui>=0.9.54",
+]
+
+[project.optional-dependencies]
+ml = [
+  "gymnasium>=0.29",
+  "torch>=2.2",
+  "stable-baselines3>=2.3",
+  "sb3-contrib>=2.3",
+  "tensorboard>=2.16",
+]
+dev = [
+  "pytest>=8.0",
+  "pytest-cov>=5.0",
+  "ruff>=0.4",
+  "mypy>=1.10",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"

@@ -2,3 +2,9 @@ __pycache__
 .venv
 *.log
 *.exe
+*.egg-info/
+src/woodoku/agent/checkpoints/
+calibration_*.png
+woodoku_bot.log
+__pycache__/
+.pytest_cache/

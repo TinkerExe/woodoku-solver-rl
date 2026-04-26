@@ -451,10 +451,58 @@ func runCVMode() {
 	}
 }
 
+func runApplyMode() {
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	var board Board
+	for {
+		for i := 0; i < 9; i++ {
+			if !scanner.Scan() {
+				return
+			}
+			for j, f := range strings.Fields(scanner.Text()) {
+				board[i][j], _ = strconv.Atoi(f)
+			}
+		}
+		if !scanner.Scan() {
+			return
+		}
+		f := strings.Fields(scanner.Text())
+		if len(f) < 3 {
+			return
+		}
+		sid, _ := strconv.Atoi(f[0])
+		row, _ := strconv.Atoi(f[1])
+		col, _ := strconv.Atoi(f[2])
+		shape, ok := shapes[sid]
+		if !ok {
+			fmt.Println("ERR_UNKNOWN_SHAPE")
+			continue
+		}
+		if !isValidMove(board, shape, row, col) {
+			fmt.Println("ILLEGAL")
+			continue
+		}
+		newBoard := applyMoveToBoard(board, Move{ShapeID: sid, Row: row, Col: col})
+		for i := 0; i < 9; i++ {
+			for j := 0; j < 9; j++ {
+				if j > 0 {
+					fmt.Print(" ")
+				}
+				fmt.Print(newBoard[i][j])
+			}
+			fmt.Println()
+		}
+		fmt.Println("DONE")
+		board = newBoard
+	}
+}
+
 func main() {
 	modeAuto := flag.Bool("a", false, "Auto mode: play to completion and print result")
 	modeIter := flag.Bool("i", false, "Iterative mode: show each turn, wait for Enter")
 	modeCV := flag.Bool("cv", false, "CV mode: read board+pieces from stdin, output moves")
+	modeApply := flag.Bool("apply", false, "Apply mode: read board+move, output post-move board")
 	flag.Parse()
 
 	if *modeAuto {
@@ -467,6 +515,10 @@ func main() {
 	}
 	if *modeCV {
 		runCVMode()
+		return
+	}
+	if *modeApply {
+		runApplyMode()
 		return
 	}
 

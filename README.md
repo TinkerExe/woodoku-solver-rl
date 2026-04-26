@@ -1,97 +1,49 @@
-# Woodoku Solver
+# Woodoku Solver (ML-ready)
 
-Бот, который самостоятельно играет в Woodoku на BlueStacks. Go-решатель находит оптимальный ход, Python-слой смотрит на экран и кликает мышью.
-
-## Как это работает
-
-```
-Скриншот экрана
-      ↓
-OpenCV: определить состояние доски 9×9 и 3 новые фигуры
-      ↓
-Go-бинарник: найти лучший ход (beam search по очкам)
-      ↓
-pyautogui / Win32 API: перетащить каждую фигуру на нужную клетку
-      ↓
-повторить
-```
-
-Захват экрана и управление мышью работают как на нативном Windows, так и из WSL через `powershell.exe`.
-
-## Пререквизиты
-
-### Go
-- Go 1.21+
-
-### Python
-- Python 3.11+ (нативный Windows **или** WSL/Ubuntu)
-- Зависимости:
-  ```
-  mss>=9.0
-  numpy>=1.26
-  opencv-python>=4.9
-  pyautogui>=0.9.54
-  ```
-
-### BlueStacks
-- BlueStacks 5, запущен в **портретном режиме**
-- Woodoku открыт и виден на экране
-
-## Установка
+## Установка (через uv)
 
 ```bash
-# 1. Собрать Go-бинарник (из корня проекта)
-go build -o woodoku-solver.exe .
+# Go бинарник в корень репозитория
+cd go-solver && go build -o ../woodoku-solver.exe . && cd ..
 
-# 2. Установить Python-зависимости
-pip install -r vision/requirements.txt
+# Python зависимости + dev/ml extras
+uv sync --extra ml --extra dev
 ```
 
 ## Запуск
 
-### Бот (полный автопилот)
 ```bash
-python -m vision.main
+# dry-run бота (без перетаскивания мышью)
+uv run python -m woodoku.tools.run_bot --dry
+
+# калибровка
+uv run python -m woodoku.tools.calibrate
 ```
 
+## ML / RL training
 
-### Тестовый прогон без кликов
 ```bash
-python -m vision.main --dry
-```
-Бот определяет фигуры и вычисляет ходы, но мышь не двигает.
+# smoke-train
+uv run python -m woodoku.tools.train_agent --total-timesteps 4096 --n-envs 2 --eval-episodes 3
 
-### Калибровка / отладка
-```bash
-python -m vision.calibrate
-```
-Сохраняет несколько PNG-файлов (`calibration_*.png`) с отмеченными границами доски, масками цветов и точками захвата фигур. Запускать при первой настройке или если бот перестал корректно определять элементы.
-
-## Структура проекта
-
-```
-woodoku-solver-v2/
-├── main.go                  # Go-решатель (обычный режим + -cv режим для бота)
-├── PC_vs_game.go            # режим игры человека против компьютера
-├── vision/
-│   ├── main.py              # главный цикл бота
-│   ├── capture.py           # DPI-aware захват скриншота
-│   ├── detector.py          # OpenCV: доска, клетки, фигуры
-│   ├── automator.py         # перетаскивание мыши
-│   ├── solver.py            # мост к Go-бинарнику (stdin/stdout)
-│   ├── shapes.py            # справочник всех 83 фигур Woodoku
-│   └── calibrate.py        # утилита отладки
-└── vision/requirements.txt
+# после любого изменения core/rules.py обязательно cross-check
+uv run python -m woodoku.tools.crosscheck_simulator --n 5000 --seed 0
 ```
 
-## Настройка под своё разрешение
+Чекпоинты сохраняются в `src/woodoku/agent/checkpoints/`.
 
-Если доска определяется неверно, откройте [vision/detector.py](vision/detector.py) и поправьте константы в начале файла:
+## Структура
 
-```python
-BOARD_LEFT_FRAC   = 0.03   # левый край доски (доля ширины игровой области)
-BOARD_TOP_FRAC    = 0.17   # верхний край доски (доля высоты)
-BOARD_WIDTH_FRAC  = 0.94   # ширина доски (доля ширины игровой области)
 ```
-
-После изменения запустите `python -m vision.calibrate` и проверьте `calibration_debug.png`.
+go-solver/                  # Go solver (unchanged logic + apply mode)
+src/woodoku/core/           # numpy simulator
+src/woodoku/env/            # gymnasium env + masking
+src/woodoku/agent/          # training/eval scaffolding
+src/woodoku/recognition/    # CV geometry/masks/classifier
+src/woodoku/capture/        # screenshot capture
+src/woodoku/automation/     # mouse automation
+src/woodoku/solver/         # Go bridge + protocol
+src/woodoku/bot/            # bot loop/logging
+src/woodoku/tools/          # runnable entrypoints
+tests/
+```
